@@ -10,6 +10,7 @@ from flamedisx.xlzd import XLZDvERSource, XLZDPb214Source, XLZDKr85Source, XLZDX
 from flamedisx.xlzd import XLZDvNRSolarSource, XLZDvNROtherLNGSSource, XLZDvNROtherSURFSource, XLZDNeutronSource
 from flamedisx.xlzd  import XLZDWIMPSource, XLZDEFTScalarO6Source
 from flamedisx.xlzd  import XLZDALPGalacticDMSource, XLZDHiddenPhotonSource
+from flamedisx.xlzd import XLZDMigdalSource
 
 from tqdm import tqdm
 from multihist import Histdd
@@ -99,14 +100,14 @@ def generate_template_set(mode, signal_type, parameters, analysis_parameters, n_
     spe_eff = parameters['spe_efficiency'],
     configuration = parameters['lce_configuration'],
     )
-
+    print(parameters['lce_configuration'])
     if analysis_parameters['energy_max_ER']['value'] > 0.:
         energy_max_ER = analysis_parameters['energy_max_ER']['value']
     else:
         energy_max_ER = None
 
     fd_sources = dict()
-    if mode in ['LENR', 'HENR']:
+    if mode in ['LENR', 'HENR','Migdal']:
         # ER backgrounds
         fd_sources["SolarER"] = XLZDvERSource(
             energy_max=energy_max_ER,
@@ -174,6 +175,9 @@ def generate_template_set(mode, signal_type, parameters, analysis_parameters, n_
         elif mode == 'HENR':
             signal_source = XLZDEFTScalarO6Source
             signal_parameter = 'mass_GeV'
+        elif mode == 'Migdal':
+            signal_source = XLZDMigdalSource
+            signal_parameter= 'wimp_mass'
         else:
              raise ValueError(f'Invalid mode {mode}.')
     elif signal_type == 'ALP':
@@ -191,11 +195,20 @@ def generate_template_set(mode, signal_type, parameters, analysis_parameters, n_
             masses = [masses]
         for mass in masses:
             signal_dict = {signal_parameter: mass}
-            fd_sources[f'{signal_type}{mass:.0f}']= signal_source(**signal_dict, **common_pass_parameters)
+            if mode == 'Migdal':
+                signal_dict.update(
+                        {
+                        'modulation':False,
+                        'sigma':1e-37
+                        }
+                        )
+            fd_sources[f'{signal_type}{mass:.1f}']= signal_source(**signal_dict, **common_pass_parameters)
     if mode == 'LENR':
         fd_sources["WIMP"]= XLZDWIMPSource(wimp_mass = analysis_parameters["wimp_mass_benchmark"]["value"], **common_pass_parameters)
+    if mode == 'Migdal':
+        fd_sources["WIMP"]= XLZDMigdalSource(wimp_mass=analysis_parameters["wimp_mass_benchmark"]["value"], sigma=1e-37, modulation=False, **common_pass_parameters)
 
-    if mode in ['LENR', 'HENR']:
+    if mode in ['LENR', 'HENR', 'Migdal']:
         cs1_bins = np.linspace(analysis_parameters['cs1_range']['value'][0],
                               analysis_parameters['cs1_range']['value'][-1],
                               analysis_parameters['cs1_bins']["value"])
@@ -231,7 +244,7 @@ def generate_template_set(mode, signal_type, parameters, analysis_parameters, n_
         data = source.simulate(n_samples)
         hist = Histdd(**hist_args)
 
-        if mode in ['LENR', 'HENR']:
+        if mode in ['LENR', 'HENR', 'Migdal']:
             cS1 = data['cs1'].values
             log10_cS2 = np.log10(data['cs2'].values)
             rsq = (data['r'].values)**2
@@ -273,7 +286,10 @@ def generate_template_set(mode, signal_type, parameters, analysis_parameters, n_
     if 'neutrons' in templates:
         templates['neutrons'] = templates['neutrons'] / templates['neutrons'].n * mus['CEvNS_other_LNGS'] * parameters['neutron']
     if 'WIMP' in templates:
-        templates['WIMP'] = templates['WIMP'] * (analysis_parameters["wimp_cross-section_benchmark"]["value"] / 1e-45)
+        if mode!='Migdal':
+            templates['WIMP'] = templates['WIMP'] * (analysis_parameters["wimp_cross-section_benchmark"]["value"] / 1e-45)
+        else:
+            templates['WIMP'] = templates['WIMP'] * (analysis_parameters["wimp_cross-section_benchmark"]["value"] / 1e-37)
 
     for sname, template in templates.items():
         print(f'{sname}: {template.n}')
